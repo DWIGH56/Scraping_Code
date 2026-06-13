@@ -1,0 +1,23 @@
+# Google Maps Leads Scraper Dependencies
+# Core
+playwright==1.52.0
+playwright-stealth==1.0.6
+pandas==2.2.3
+
+# PDF Generation
+reportlab==4.2.5
+
+# Database
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10  # For PostgreSQL
+
+# HTTP / Async
+requests==2.32.3
+aiohttp==3.11.14
+
+# Spreadsheet export
+openpyxl==3.1.5
+
+# Utility
+python-dateutil==2.9.0.post0
+fake-useragent==2.1.1
