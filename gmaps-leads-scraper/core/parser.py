@@ -203,36 +203,45 @@ async def parse_detail_panel(page: Page) -> Optional[dict]:
             except Exception:
                 pass
 
-        # --- Address ---
+        # --- Address (strip Google Maps icon character ) ---
         try:
             addr = page.locator(ADDRESS_SELECTOR).first
             if await addr.is_visible(timeout=2000):
                 # Try aria-label first
                 raw = await addr.get_attribute("aria-label")
                 if raw and "Address:" in raw:
-                    lead["address"] = raw.replace("Address:", "").strip()
+                    address = raw.replace("Address:", "").strip()
                 else:
                     # Fallback to button text
                     text = await addr.inner_text()
-                    if text.strip():
-                        lead["address"] = text.strip()
+                    address = text.strip() if text.strip() else None
+
+                if address:
+                    # Strip Google Maps Unicode icon character
+                    address = address.replace("\ue0c8", "").replace("", "").strip()
+                    address = address.replace("Address:", "").replace("address:", "").strip()
+                    lead["address"] = address
         except Exception:
             pass
 
-        # --- Phone ---
+        # --- Phone (strip all non-digit except leading +) ---
         try:
             phone_el = page.locator(PHONE_SELECTOR).first
             if await phone_el.is_visible(timeout=2000):
-                # Try aria-label
                 raw = await phone_el.get_attribute("aria-label")
-                if raw:
-                    lead["phone"] = raw.replace("Phone:", "").strip()
-                else:
-                    text = await phone_el.inner_text()
-                    # Remove common UI prefixes
-                    cleaned = re.sub(r"^(Phone|Tel|Telephone)[:\s]*", "", text, flags=re.IGNORECASE).strip()
-                    if cleaned:
-                        lead["phone"] = cleaned
+                raw_text = raw if raw else (await phone_el.inner_text())
+                if raw_text:
+                    # Remove UI prefixes like "Phone:", "Tel:", "Telephone:"
+                    cleaned = re.sub(r"^(Phone|Tel|Telephone)[:\s]*", "", raw_text, flags=re.IGNORECASE).strip()
+                    # Strip all non-digit chars except leading +
+                    digits_only = re.sub(r"[^\d+]", "", cleaned)
+                    # Remove any stray + in the middle (keep only leading +)
+                    if digits_only.count("+") > 1:
+                        digits_only = "+" + digits_only.replace("+", "")
+                    elif digits_only.count("+") == 1 and not digits_only.startswith("+"):
+                        digits_only = digits_only.replace("+", "")
+                    if len(digits_only) >= 8:
+                        lead["phone"] = digits_only
         except Exception:
             pass
 

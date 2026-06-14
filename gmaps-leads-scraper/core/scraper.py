@@ -17,8 +17,6 @@ from playwright.async_api import Browser, BrowserContext, Page
 
 from config.settings import (
     GMAPS_BASE_URL,
-    SCROLL_ITERATIONS,
-    SCROLL_STEP_PX,
     SCROLL_DELAY_MIN,
     SCROLL_DELAY_MAX,
     SEARCH_BOX_INPUT,
@@ -41,42 +39,71 @@ async def _type_human_like(page: Page, selector: str, text: str) -> None:
         await asyncio.sleep(random.uniform(0.01, 0.04))
 
 
-async def _micro_scroll(page: Page, iterations: int = SCROLL_ITERATIONS) -> None:
+async def _micro_scroll(page: Page) -> None:
     """
-    Perform micro-grid scrolling on the results panel.
-    Each step scrolls a small distance (120 px) and waits a random delay.
-    This mimics human reading behaviour and avoids bot detection.
+    Dynamically scroll the results panel until no new listings appear.
+
+    Counts visible RESULT_ITEMS, scrolls the RESULTS_PANEL by 800 px,
+    waits a random delay, and recounts. If the count hasn't increased
+    after 3 consecutive scrolls, we've reached the end — break.
     """
     panel = page.locator(RESULTS_PANEL)
     panel_exists = await panel.count() > 0
+    scroll_target = panel if panel_exists else page
 
-    for i in range(iterations):
-        if panel_exists:
-            await panel.evaluate(f"el => el.scrollBy(0, {SCROLL_STEP_PX})")
+    prev_count = 0
+    stale_scrolls = 0
+    max_stale = 3  # break after 3 scrolls with no new items
+    scroll_step = 800  # larger step to load faster
+
+    while stale_scrolls < max_stale:
+        # Count current visible listings
+        items = page.locator(RESULT_ITEMS)
+        current_count = await items.count()
+
+        if current_count > prev_count:
+            stale_scrolls = 0  # reset — we made progress
+            prev_count = current_count
         else:
-            await page.evaluate(f"window.scrollBy(0, {SCROLL_STEP_PX})")
+            stale_scrolls += 1
+
+        if stale_scrolls >= max_stale:
+            break
+
+        # Scroll
+        if panel_exists:
+            await scroll_target.evaluate(f"el => el.scrollBy(0, {scroll_step})")
+        else:
+            await scroll_target.evaluate(f"window.scrollBy(0, {scroll_step})")
 
         # Random pause between scrolls
         await asyncio.sleep(random.uniform(SCROLL_DELAY_MIN, SCROLL_DELAY_MAX))
 
-        # Occasionally "look" at the page by moving the mouse (human-like)
-        if i % 5 == 0:
-            await page.mouse.move(
-                random.randint(100, 800), random.randint(100, 600), steps=5
-            )
+        # Stealth: move the mouse to a random position every scroll
+        await page.mouse.move(
+            random.randint(200, 900),
+            random.randint(200, 700),
+            steps=random.randint(3, 7),
+        )
 
 
 async def _collect_listing_urls(page: Page) -> list[str]:
     """
-    Return all listing anchor hrefs currently visible in the results panel.
+    Return all unique listing hrefs from the results panel.
+
+    Selector: any <a> whose href contains '/maps/place/'.
+    Query strings (everything after '?') are stripped to deduplicate
+    URLs that differ only by tracking parameters.
     """
     links = await page.locator(RESULT_ITEMS).all()
-    urls = []
+    seen: set[str] = set()
     for link in links:
         href = await link.get_attribute("href")
-        if href and href.startswith("https://www.google.com/maps/place"):
-            urls.append(href)
-    return list(set(urls))  # deduplicate
+        if href and "/maps/place/" in href:
+            # Strip tracking query params for deduplication
+            clean = href.split("?")[0] if "?" in href else href
+            seen.add(clean)
+    return list(seen)
 
 
 async def scrape_google_maps(
